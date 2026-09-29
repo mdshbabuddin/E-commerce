@@ -1,0 +1,27 @@
+# Dependencies
+**/node_modules/
+
+# Environment variables
+**/.env
+**/.env.*
+!.env.example
+
+# Build files
+**/dist/
+**/build/
+
+# Uploads / temporary files
+**/uploads/*
+
+# Old Git history backup
+**/.git-old/
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
