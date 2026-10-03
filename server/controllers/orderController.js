@@ -39,124 +39,156 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("No items in cart.", 400));
   }
   const productIds = items.map((item) => item.product.id);
-  const { rows: products } = await database.query(
-    `SELECT id, price, stock, name FROM products WHERE id = ANY($1::uuid[])`,
-    [productIds]
-  );
 
-  let total_price = 0;
-  const values = [];
-  const placeholders = [];
+  const client = await database.connect();
 
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index];
-    const product = products.find((p) => p.id === item.product.id);
+  try {
+    await client.query("BEGIN");
 
-    if (!product) {
-      return next(
-        new ErrorHandler(`Product not found for ID: ${item.product.id}`, 404)
-      );
-    }
+    const { rows: products } = await client.query(
+      `SELECT id, price, stock, name FROM products WHERE id = ANY($1::uuid[])`,
+      [productIds]
+    );
 
-    if (item.quantity > product.stock) {
-      return next(
-        new ErrorHandler(
+    let total_price = 0;
+    const values = [];
+    const placeholders = [];
+
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const product = products.find((p) => p.id === item.product.id);
+
+      if (!product) {
+        throw new ErrorHandler(
+          `Product not found for ID: ${item.product.id}`,
+          404
+        );
+      }
+
+      if (item.quantity > product.stock) {
+        throw new ErrorHandler(
           `Only ${product.stock} units available for ${product.name}`,
           400
-        )
+        );
+      }
+
+      // Reduce stock now, only if enough is still left
+      const stockUpdate = await client.query(
+        `UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1`,
+        [item.quantity, product.id]
+      );
+      if (stockUpdate.rowCount === 0) {
+        throw new ErrorHandler(
+          `Only ${product.stock} units available for ${product.name}`,
+          400
+        );
+      }
+
+      const itemTotal = product.price * item.quantity;
+      total_price += itemTotal;
+
+      values.push(
+        null,
+        product.id,
+        item.quantity,
+        product.price,
+        item.product.images?.[0]?.url || "",
+        product.name
+      );
+
+      const offset = index * 6;
+
+      placeholders.push(
+        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${
+          offset + 5
+        }, $${offset + 6})`
       );
     }
 
-    const itemTotal = product.price * item.quantity;
-    total_price += itemTotal;
-
-    values.push(
-      null,
-      product.id,
-      item.quantity,
-      product.price,
-      item.product.images?.[0]?.url || "",
-      product.name
+    const tax_price = 0.18;
+    const shipping_price = total_price >= 50 ? 0 : 2;
+    total_price = Math.round(
+      total_price + total_price * tax_price + shipping_price
     );
 
-    const offset = index * 6;
-
-    placeholders.push(
-      `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${
-        offset + 5
-      }, $${offset + 6})`
-    );
-  }
-
-  const tax_price = 0.18;
-  const shipping_price = total_price >= 50 ? 0 : 2;
-  total_price = Math.round(
-    total_price + total_price * tax_price + shipping_price
-  );
-
-  const orderResult = await database.query(
-    `INSERT INTO orders (buyer_id, total_price, tax_price, shipping_price) VALUES ($1, $2, $3, $4) RETURNING *`,
-    [req.user.id, total_price, tax_price, shipping_price]
-  );
-
-  const orderId = orderResult.rows[0].id;
-
-  for (let i = 0; i < values.length; i += 6) {
-    values[i] = orderId;
-  }
-
-  await database.query(
-    `
-    INSERT INTO order_items (order_id, product_id, quantity, price, image, title)
-    VALUES ${placeholders.join(", ")} RETURNING *
-    `,
-    values
-  );
-
-  await database.query(
-    `
-    INSERT INTO shipping_info (order_id, full_name, state, city, country, address, pincode, phone)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
-    `,
-    [orderId, full_name, state, city, country, address, pincode, phone]
-  );
-
-  if (paymentMethod === "COD") {
-    await database.query(
-      `INSERT INTO payments (order_id, payment_type, payment_status) VALUES ($1, $2, $3) RETURNING *`,
-      [orderId, "COD", "Pending"]
+    const orderResult = await client.query(
+      `INSERT INTO orders (buyer_id, total_price, tax_price, shipping_price) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.user.id, total_price, tax_price, shipping_price]
     );
 
-    await database.query(`UPDATE orders SET paid_at = NOW() WHERE id = $1`, [
+    const orderId = orderResult.rows[0].id;
+
+    for (let i = 0; i < values.length; i += 6) {
+      values[i] = orderId;
+    }
+
+    await client.query(
+      `
+      INSERT INTO order_items (order_id, product_id, quantity, price, image, title)
+      VALUES ${placeholders.join(", ")} RETURNING *
+      `,
+      values
+    );
+
+    await client.query(
+      `
+      INSERT INTO shipping_info (order_id, full_name, state, city, country, address, pincode, phone)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+      `,
+      [orderId, full_name, state, city, country, address, pincode, phone]
+    );
+
+    if (paymentMethod === "COD") {
+      await client.query(
+        `INSERT INTO payments (order_id, payment_type, payment_status) VALUES ($1, $2, $3) RETURNING *`,
+        [orderId, "COD", "Pending"]
+      );
+
+      await client.query(`UPDATE orders SET paid_at = NOW() WHERE id = $1`, [
+        orderId,
+      ]);
+
+      await client.query("COMMIT");
+
+      return res.status(200).json({
+        success: true,
+        message: "Order placed successfully. Pay with cash on delivery.",
+        paymentMethod: "COD",
+        paymentIntent: null,
+        total_price,
+      });
+    }
+
+    const paymentResponse = await generatePaymentIntent(
       orderId,
-    ]);
+      total_price,
+      client
+    );
 
-    return res.status(200).json({
+    if (!paymentResponse.success) {
+      throw new ErrorHandler("Payment failed. Try again.", 500);
+    }
+
+    await client.query("COMMIT");
+
+    res.status(200).json({
       success: true,
-      message: "Order placed successfully. Pay with cash on delivery.",
-      paymentMethod: "COD",
-      paymentIntent: null,
+      message: "Order placed successfully. Please proceed to payment.",
+      paymentMethod: "Card",
+      paymentIntent: paymentResponse.clientSecret,
       total_price,
     });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
   }
-
-  const paymentResponse = await generatePaymentIntent(orderId, total_price);
-
-  if (!paymentResponse.success) {
-    return next(new ErrorHandler("Payment failed. Try again.", 500));
-  }
-
-  res.status(200).json({
-    success: true,
-    message: "Order placed successfully. Please proceed to payment.",
-    paymentMethod: "Card",
-    paymentIntent: paymentResponse.clientSecret,
-    total_price,
-  });
 });
 
 export const fetchSingleOrder = catchAsyncErrors(async (req, res, next) => {
   const { orderId } = req.params;
+  const isAdmin = req.user.role === "Admin";
   const result = await database.query(
     `
     SELECT 
@@ -187,11 +219,15 @@ FROM orders o
 LEFT JOIN order_items oi ON o.id = oi.order_id
 LEFT JOIN shipping_info s ON o.id = s.order_id
 LEFT JOIN payments p ON o.id = p.order_id
-WHERE o.id = $1
+WHERE o.id = $1 AND (o.buyer_id = $2 OR $3::boolean)
 GROUP BY o.id, s.id, p.id;
 `,
-    [orderId]
+    [orderId, req.user.id, isAdmin]
   );
+
+  if (result.rows.length === 0) {
+    return next(new ErrorHandler("Order not found.", 404));
+  }
 
   res.status(200).json({
     success: true,

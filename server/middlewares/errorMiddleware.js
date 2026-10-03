@@ -6,12 +6,24 @@ class ErrorHandler extends Error {
 }
 
 export const errorMiddleware = (err, req, res, next) => {
+    // Log the original error first, so you can still see the real cause in the terminal
+    console.log(err);
+
     err.message = err.message || "Internal Server Error";
     err.statusCode = err.statusCode || 500;
 
-    if (err.code === 23505) {
-        const message = `Duplicate field value entered`;
-        err = new ErrorHandler(message, 400);
+    // PostgreSQL error codes are TEXT, so they must be compared with quotes
+    if (err.code === "23505") {
+        err = new ErrorHandler("Duplicate field value entered", 400);
+    } else if (["22P02", "23514", "23502"].includes(err.code)) {
+        err = new ErrorHandler("Invalid input.", 400);
+    } else if (err.code === "22001") {
+        err = new ErrorHandler("One of the values you entered is too long.", 400);
+    } else if (["23503", "23001"].includes(err.code)) {
+        err = new ErrorHandler(
+            "This item is linked to other records and cannot be changed or deleted.",
+            409
+        );
     }
 
     if (err.name === "JsonWebTokenError") {
@@ -24,13 +36,20 @@ export const errorMiddleware = (err, req, res, next) => {
         err = new ErrorHandler(message, 401);
     }
 
-    const errorMessage = err.errors
+    let errorMessage = err.errors
         ? Object.values(err.errors)
         .map((val) => val.message)
         .join(" ")
         : err.message;
 
-    console.log(err);
+    // In production, hide the details of unexpected server errors
+    if (
+        process.env.NODE_ENV === "production" &&
+        err.statusCode === 500 &&
+        !(err instanceof ErrorHandler)
+    ) {
+        errorMessage = "Internal Server Error";
+    }
 
     return res.status(err.statusCode).json({
         success: false,

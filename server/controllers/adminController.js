@@ -2,6 +2,7 @@ import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
 import database from "../database/db.js";
 import { v2 as cloudinary } from "cloudinary";
+import { sanitizeUser } from "../utils/sanitizeUser.js";
 
 export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
@@ -23,20 +24,24 @@ export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
         success: true,
         totalUsers,
         currentPage: page,
-        users: users.rows,
+        users: users.rows.map(sanitizeUser),
     });
 });
 
 export const deleteUser = catchAsyncErrors(async(req, res, next) => {
     const {id} = req.params;
 
+    if (id === req.user.id) {
+        return next(new ErrorHandler("You cannot delete your own account.", 400));
+    }
+
     const deleteUser = await database.query(
-        "DELETE FROM users WHERE id = $1 RETURNING *",
+        "DELETE FROM users WHERE id = $1 AND role = 'User' RETURNING *",
         [id]
     );
 
     if(deleteUser.rows.length === 0) {
-        return next(new ErrorHandler("User not found", 404));
+        return next(new ErrorHandler("User not found, or this account cannot be deleted.", 404));
     }
 
     const avatar = deleteUser.rows[0].avatar;
@@ -47,7 +52,7 @@ export const deleteUser = catchAsyncErrors(async(req, res, next) => {
     res.status(200).json({
         success: true,
         message: "User deleted successfully",
-        user: deleteUser.rows[0],
+        user: sanitizeUser(deleteUser.rows[0]),
     });
 });
 

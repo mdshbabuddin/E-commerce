@@ -2,7 +2,8 @@ import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
 import database from "../database/db.js";
 import bcrypt from "bcrypt";
-import { sendToken } from "../utils/jwtToken.js";
+import { sendToken, getCookieName, getCookieOptions } from "../utils/jwtToken.js";
+import { sanitizeUser } from "../utils/sanitizeUser.js";
 import { generateEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
 import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -56,6 +57,9 @@ export const login = catchAsyncErrors(async(req, res, next) => {
     if (!isPasswordMatch) {
         return next(new ErrorHandler("Invalid email and password.", 401));
     }
+    if (req.headers["x-client"] === "dashboard" && user.rows[0].role !== "Admin") {
+        return next(new ErrorHandler("Admin access only.", 403));
+    }
     sendToken(user.rows[0], 200, "Logged In.", res);
 } );
 
@@ -63,14 +67,14 @@ export const getUser = catchAsyncErrors(async(req, res, next) => {
     const { user } = req;
     res.status(200).json({
         success: true,
-        user,
+        user: sanitizeUser(user),
     });
 } );
 
 export const logout = catchAsyncErrors(async(req, res, next) => {
-    res.status(200).cookie("token", "", {
+    res.status(200).cookie(getCookieName(req), "", {
         expires: new Date(Date.now()),
-        httpOnly: true,
+        ...getCookieOptions(),
     })
     .json ({
         success:true,
@@ -81,12 +85,26 @@ export const logout = catchAsyncErrors(async(req, res, next) => {
 export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
     const {email} = req.body;
     const {frontendUrl} = req.query;
+
+    // Only allow our own websites in the reset link
+    const allowedUrls = [process.env.FRONTEND_URL, process.env.DASHBOARD_URL].filter(Boolean);
+    const baseUrl = allowedUrls.includes(frontendUrl) ? frontendUrl : process.env.FRONTEND_URL;
+    if (!baseUrl) {
+        return next(new ErrorHandler("Server is not configured correctly.", 500));
+    }
+
+    const genericMessage =
+        "If an account exists with this email, a password reset link has been sent.";
+
     let userResult = await database.query(
         `SELECT * FROM users WHERE email = $1`,
         [email]
     );
     if (userResult.rows.length === 0) {
-        return next(new ErrorHandler("User not found with thhis email.", 404));
+        return res.status(200).json({
+            success: true,
+            message: genericMessage,
+        });
     }
     const user = userResult.rows[0];
     const { hashedToken, resetPasswordExpireTime, resetToken } =
@@ -95,7 +113,7 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
     await database.query(`UPDATE users SET reset_password_token = $1, reset_password_expire = to_timestamp($2) WHERE email = $3`, [hashedToken, resetPasswordExpireTime / 1000, email]
     );
 
-    const resetPasswordUrl = `${frontendUrl}/password/reset/${resetToken}`;
+    const resetPasswordUrl = `${baseUrl}/password/reset/${resetToken}`;
 
     const message = generateEmailTemplate(resetPasswordUrl);
 
@@ -107,7 +125,7 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
         });
         res.status(200).json({
             success: true,
-            message: `Email sent to ${user.email} successfully.`,
+            message: genericMessage,
         });
     } catch (error) {
         await database.query(
@@ -226,6 +244,6 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
     res.status(200).json({
         success: true,
         message: "Profile updated successfully.",
-        user: user.rows[0]
+        user: sanitizeUser(user.rows[0])
     });
 });

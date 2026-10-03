@@ -2,9 +2,11 @@ import jwt from "jsonwebtoken";
 import { catchAsyncErrors } from "./catchAsyncError.js";
 import ErrorHandler from "./errorMiddleware.js";
 import database from "../database/db.js";
+import { getCookieName } from "../utils/jwtToken.js";
 
 export const isAuthenticated = catchAsyncErrors( async( req, res, next ) => {
-    const { token } =req.cookies;
+    const isDashboard = req.headers["x-client"] === "dashboard";
+    const token = req.cookies[getCookieName(req)];
     if(!token) {
         return next(new ErrorHandler("Please login to access this resource.", 401));
     }
@@ -17,6 +19,10 @@ export const isAuthenticated = catchAsyncErrors( async( req, res, next ) => {
         return next(new ErrorHandler("User not found. Please login again.", 401));
     }
     req.user = user.rows[0];
+
+    if (isDashboard && req.user.role !== "Admin") {
+        return next(new ErrorHandler("Admin access only.", 403));
+    }
     next();
 })
 
