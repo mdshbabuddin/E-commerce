@@ -1,6 +1,6 @@
 [[redirects]]
   from = "/api/*"
-  to = "https://YOUR-API.onrender.com/api/:splat"
+  to = "https://myshop-lveo.onrender.com/api/:splat"
   status = 200
   force = true
 
