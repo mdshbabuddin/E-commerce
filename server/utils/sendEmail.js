@@ -1,32 +1,27 @@
-import nodeMailer from "nodemailer";
-
-export const sendEmail = async({ email, subject, message}) => {
-
-
-    const transporter = nodeMailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT),
-        secure: Number(process.env.SMTP_PORT) === 465,
-        auth: {
-            user: process.env.SMTP_MAIL,
-            pass: process.env.SMTP_PASSWORD,
+export const sendEmail = async ({ email, subject, message }) => {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+            "api-key": process.env.BREVO_API_KEY,
+            "Content-Type": "application/json",
+            Accept: "application/json",
         },
+        body: JSON.stringify({
+            sender: {
+                name: process.env.BREVO_SENDER_NAME || "MyShop",
+                email: process.env.SMTP_MAIL,
+            },
+            to: [{ email }],
+            subject,
+            htmlContent: message,
+        }),
     });
 
-     // 🔥 ADD THIS (VERY IMPORTANT)
-    try {
-        await transporter.verify();
-        console.log("SMTP connection successful");
-    } catch (err) {
-        console.log("SMTP ERROR:", err); // 🔴 THIS WILL SHOW REAL PROBLEM
-        throw err;
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.log("EMAIL ERROR:", response.status, errorText);
+        throw new Error(`Email service error: ${response.status}`);
     }
 
-    const mailOptions = {
-        from: process.env.SMTP_MAIL,
-        to: email,
-        subject,
-        html: message,
-    };
-    await transporter.sendMail(mailOptions);
+    console.log("Email sent successfully");
 };
