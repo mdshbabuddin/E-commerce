@@ -8,6 +8,7 @@ import { useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { fetchAllProducts } from "../store/slices/productSlice";
 import { toggleAIModal } from "../store/slices/popupSlice";
+import { formatINR } from "../lib/money";
 
 const Products = () => {
   const { products, totalProducts } = useSelector((state) => state.product);
@@ -22,7 +23,7 @@ const Products = () => {
 
   const [searchQuery, setSearchQuery] = useState(searchTerm || "")
   const [selectedCategory, setSelectedCategory] = useState(searchedCategory || "")
-  const [priceRange, setPriceRange] = useState([0, 10000]);
+  const [priceRange, setPriceRange] = useState([0, 100000]);
   const [selectedRating, setSelectedRating] = useState(0);
   const [availability, setAvailability] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -78,7 +79,8 @@ const Products = () => {
                     <input 
                       type="range"
                       min="0"
-                      max="10000"
+                      max="100000"
+                      step="500"
                       value={priceRange[1]}
                       onChange={(e) =>
                         setPriceRange([priceRange[0], parseInt(e.target.value)])
@@ -86,8 +88,8 @@ const Products = () => {
                       className="w-full"
                     />
                     <div className="flex justify-between text-sm text-muted-foreground">
-                      <span>${priceRange[0]}</span>
-                      <span>${priceRange[1]}</span>
+                      <span>{formatINR(priceRange[0])}</span>
+                      <span>{formatINR(priceRange[1])}</span>
                     </div>
                   </div>
                 </div>

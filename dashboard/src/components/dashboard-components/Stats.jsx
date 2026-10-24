@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { formatNumber } from "../../lib/helper";
+import { formatINRCompact } from "../../lib/helper";
 import { useSelector } from "react-redux";
 
 const Stats = () => {
@@ -10,7 +10,7 @@ const Stats = () => {
   const stats = [
     {
       title: "Today's Revenue",
-      value: formatNumber(todayRevenue),
+      value: formatINRCompact(todayRevenue),
       change: revenueChange,
     },
     {
@@ -20,14 +20,14 @@ const Stats = () => {
     },
     {
       title: "All Time Revenue",
-      value: formatNumber(totalRevenueAllTime),
+      value: formatINRCompact(totalRevenueAllTime),
       change: null,
     },
   ];
 
   useEffect(() => {
     if (yesterdayRevenue) {
-      let change = 
+      let change =
       yesterdayRevenue === 0
       ? 100
       : ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100;
@@ -38,7 +38,7 @@ const Stats = () => {
     }
   }, [yesterdayRevenue]);
 
-  return( 
+  return(
   <>
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {stats.map((stat, index) => {

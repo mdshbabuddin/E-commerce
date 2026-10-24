@@ -7,6 +7,7 @@ import PaymentForm from "../components/PaymentForm";
 import { loadStripe } from "@stripe/stripe-js";
 import { placeOrder, goToPaymentMethodStep, toggleOrderStep } from "../store/slices/orderSlice";
 import { clearCart } from "../store/slices/cartSlice";
+import { calculateCartTotals, formatINR } from "../lib/money";
 
 const Payment = () => {
   const { authUser } = useSelector((state) => state.auth);
@@ -36,16 +37,7 @@ const Payment = () => {
     if (!authUser) navigateTo("/products");
   }, [authUser, navigateTo]);
 
-  const total = cart.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
-    0
-  );
-
-  let totalWithTax = total + total * 0.18;
-
-  if (total < 50) {
-    totalWithTax += 2;
-  }
+  const totals = calculateCartTotals(cart);
 
   const handleContinueToPayment = (e) => {
     e.preventDefault();
@@ -352,7 +344,7 @@ const Payment = () => {
                   <p className="text-muted-foreground mb-8">
                     Your order has been confirmed. Please keep{" "}
                     <span className="font-semibold text-foreground">
-                      ${Number(finalPrice ?? totalWithTax).toFixed(2)}
+                      {formatINR(finalPrice ?? totals.total)}
                     </span>{" "}
                     ready for cash on delivery.
                   </p>
@@ -395,7 +387,7 @@ const Payment = () => {
                               <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
                             </div>
                             <p className="text-sm font-semibold">
-                              ${Number(item.product.price) * item.quantity}
+                              {formatINR(Number(item.product.price) * item.quantity)}
                             </p>
                           </div>
                         );
@@ -405,25 +397,25 @@ const Payment = () => {
                     <div className="space-y-2 border-t border-[hsla(var(--glass-border))] pt-4">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Subtotal</span>
-                        <span>${total.toFixed(2)}</span>
+                        <span>{formatINR(totals.subtotal)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Shipping</span>
                         <span className="text-green-500">
-                          {total >= 50 ? "Free" : "$2"}
+                          {totals.shipping === 0 ? "Free" : formatINR(totals.shipping)}
                         </span>
                       </div>
 
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Tax</span>
+                        <span className="text-muted-foreground">GST (18%)</span>
                         <span>
-                          {(total * 0.18).toFixed(2)}
+                          {formatINR(totals.tax)}
                         </span>
                       </div>
                       <div className="flex justify-between font-semibold text-lg pt-2 border-t border-[hsla(var(--glass-border))]">
                         <span>Total</span>
                         <span className="text-primary">
-                          {totalWithTax.toFixed(2)}
+                          {formatINR(totals.total)}
                         </span>
                       </div>
                     </div>
@@ -436,7 +428,7 @@ const Payment = () => {
                     <div className="flex justify-between font-semibold text-lg">
                       <span>Amount Due (Cash)</span>
                       <span className="text-primary">
-                        ${Number(finalPrice ?? totalWithTax).toFixed(2)}
+                        {formatINR(finalPrice ?? totals.total)}
                       </span>
                     </div>
                   </>

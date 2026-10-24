@@ -2,6 +2,7 @@ import { Plus, Minus, Trash2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { removeFromCart, upadateCartQuantity } from "../store/slices/cartSlice";
+import { calculateCartTotals, formatINR } from "../lib/money";
 
 const Cart = () => {
   const dispatch = useDispatch();
@@ -15,21 +16,12 @@ const Cart = () => {
     }
   };
 
-  let total = 0;
-  if(cart){
-    total = cart.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
-      0
-    );
-  }
+  const totals = calculateCartTotals(cart);
 
   let cartItemsCount = 0;
   if(cart) {
     cartItemsCount = cart.reduce((total, item) => total + item.quantity, 0);
   }
-
-  const shippingFee = total >= 50 ? 0 : 2;
-  const grandTotal = total + total * 0.18 + shippingFee;
 
   if(cart.length === 0){
     return(
@@ -83,7 +75,7 @@ const Cart = () => {
                     </p>
                     <div className="flex items-center space-x-2">
                       <span className="text-xl font-bold text-primary">
-                        ${item.product.price}
+                        {formatINR(item.product.price)}
                       </span>
                     </div>
                   </div>
@@ -117,7 +109,7 @@ const Cart = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold text-foreground">
-                      ${(item.product.price * item.quantity).toFixed(2)}
+                      {formatINR(item.product.price * item.quantity)}
                     </p>
                   </div>
                 </div>
@@ -133,25 +125,25 @@ const Cart = () => {
             <div className="space-y-4 mb-6">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal ({cartItemsCount} items)</span>
-                <span className="font-semibold">${total.toFixed(2)}</span>
+                <span className="font-semibold">{formatINR(totals.subtotal)}</span>
               </div>
 
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Shipping</span>
                 <span className="font-semibold text-green-500">
-                  {shippingFee === 0 ? "Free" : `$${shippingFee}`}
+                  {totals.shipping === 0 ? "Free" : formatINR(totals.shipping)}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax</span>
+                <span className="text-muted-foreground">GST (18%)</span>
                 <span className="font-semibold">
-                  ${(total * 0.18).toFixed(2)}
+                  {formatINR(totals.tax)}
                 </span>
               </div>
               <div className="border-t border-[hsla(var(--glass-border))] pt-4">
                 <div className="flex justify-between">
                   <span className="text-lg font-semibold">Total</span>
-                  <span>${grandTotal.toFixed(2)}</span>
+                  <span>{formatINR(totals.total)}</span>
                 </div>
               </div>
             </div>

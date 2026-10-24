@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Star, ShoppingCart } from "lucide-react";
 import { Link } from "react-router-dom";
 // import { addToCart } from "../../store/slices/cartSlice";
 import { useDispatch } from "react-redux";
+import { formatINR } from "../../lib/money";
 import { addToCart } from "../../store/slices/cartSlice";
 
 const ProductSlider = ({ title, products }) => {
@@ -102,7 +103,7 @@ const ProductSlider = ({ title, products }) => {
                     {/* PRODUCT PRICE */}
                     <div className="flex items-center space-x-2">
                       <span className="text-xl font-bold text-primary">
-                        ${product.price}
+                        {formatINR(product.price)}
                       </span>
                     </div>
 

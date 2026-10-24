@@ -20,3 +20,16 @@ export const formatNumber = (num) => {
     return (num / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
   return (num / 1000000000).toFixed(1).replace(/\.0$/, "") + "B";
 };
+
+// Helper: 1234.5 -> "₹1,234.50" (Indian number style). Works with numbers and numeric strings.
+export const formatINR = (amount) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+  }).format(Number(amount) || 0);
+
+// Helper: short money for small cards. 286.5 -> "₹286.50", 12500 -> "₹12.5K"
+export const formatINRCompact = (amount) => {
+  const n = Number(amount) || 0;
+  return n < 1000 ? formatINR(n) : "₹" + formatNumber(n);
+};

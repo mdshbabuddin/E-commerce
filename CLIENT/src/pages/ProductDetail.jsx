@@ -15,6 +15,7 @@ import ReviewsContainer from "../components/Products/ReviewsContainer";
 import { fetchProductDetails } from "../store/slices/productSlice"
 import { addToCart } from "../store/slices/cartSlice";
 import { toast } from "react-toastify";
+import { formatINR } from "../lib/money";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -154,7 +155,7 @@ const ProductDetail = () => {
                   </div>
                   <div className="flex items-center space-x-4 mb-6 ">
                     <span className="text-2xl font-bold text-primary">
-                      ${product.price}
+                      {formatINR(product.price)}
                     </span>
                   </div>
                   <div className="flex items-center space-x-4 mb-6">

@@ -23,9 +23,9 @@ export const updateOrderStatus = createAsyncThunk(
       toast.success(data.message || "Order status updated successfully");
       return data.updatedOrder;
     } catch (error) {
-      return thunkAPI.rejectWithValue(
-        error.response?.data?.message || "Failed to update order status."
-      );
+      const message = error.response?.data?.message || "Failed to update order status.";
+      toast.error(message);
+      return thunkAPI.rejectWithValue(message);
     }
   }
 )

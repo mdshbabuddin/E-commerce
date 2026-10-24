@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { removeFromCart, upadateCartQuantity } from "../../store/slices/cartSlice";
 import { toggleCart } from "../../store/slices/popupSlice";
+import { calculateCartTotals, formatINR } from "../../lib/money";
 
 const CartSidebar = () => {
   const dispatch = useDispatch();
@@ -17,13 +18,7 @@ const CartSidebar = () => {
     }
   };
 
-  let total = 0;
-  if(cart){
-    total = cart.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
-      0
-    );
-  }
+  const totals = calculateCartTotals(cart);
 
   if (!isCartOpen) return null;
 
@@ -72,7 +67,7 @@ const CartSidebar = () => {
                             <h3 className="font-semibold text-foreground truncate">
                               {item.product.name}
                             </h3>
-                            <p className="text-primary font-semibold">${item.product.price}</p>
+                            <p className="text-primary font-semibold">{formatINR(item.product.price)}</p>
                             {/* Quantity controls */}
                           <div className="flex items-center space-x-2 mt-2">
                             <button
@@ -123,9 +118,9 @@ const CartSidebar = () => {
               {/* TOTAL */}
               <div className="border-t border-[hsla(var(--glass-border))] pt-4">
                 <div className="flex justify-between items-center mb-4">
-                  <span className="text-lg font-semibold">Total:</span>
+                  <span className="text-lg font-semibold">Subtotal:</span>
                   <span className="text-xl font-bold text-primary">
-                    ${total.toFixed(2)}
+                    {formatINR(totals.subtotal)}
                   </span>
                 </div>
 

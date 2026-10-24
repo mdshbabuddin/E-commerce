@@ -8,6 +8,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useSelector } from "react-redux";
+import { formatINR } from "../../lib/helper";
 
 const MiniSummary = () => {
   const {
@@ -25,7 +26,7 @@ const MiniSummary = () => {
   const summary = [
     {
       text: "Total Sales this Month",
-      subText: `This month's sales: INR ${currentMonthSales * 95}`,
+      subText: `This month's sales: ${formatINR(currentMonthSales)}`,
       icon: <Wallet className="text-green-600"/>
     },
     {

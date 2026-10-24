@@ -3,6 +3,7 @@ import { Filter, Package, Truck, CheckCircle, XCircle } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { fetchMyOrders } from "../store/slices/orderSlice";
+import { formatINR } from "../lib/money";
 
 const Orders = () => {
   const [statusFilter, setStatusFilter] = useState("All");
@@ -151,7 +152,7 @@ const Orders = () => {
 
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">Total</p>
-                          <p className="text-xl font-bold text-primary">${order.total_price}</p>
+                          <p className="text-xl font-bold text-primary">{formatINR(order.total_price)}</p>
                         </div>
                       </div>
                     </div>
@@ -175,7 +176,7 @@ const Orders = () => {
                             </div>
                             <div className="text-right flex flex-col items-end gap-2">
                               <p className="font-semibold text-foreground">
-                                ${item.price}
+                                {formatINR(item.price)}
                               </p>
                               {order.order_status === "Delivered" && (
                                 <button

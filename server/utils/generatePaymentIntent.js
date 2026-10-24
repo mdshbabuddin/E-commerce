@@ -1,14 +1,18 @@
 import database from "../database/db.js";
 import Stripe from "stripe";
-import dotenv from "dotenv";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-export async function generatePaymentIntent(orderId, totalPrice, db = database) {
+// amountInPaise must be a WHOLE number. Example: Rs 286.50 = 28650 paise.
+export async function generatePaymentIntent(orderId, amountInPaise, db = database) {
   try {
+    if (!Number.isInteger(amountInPaise) || amountInPaise <= 0) {
+      throw new Error(`Invalid payment amount: ${amountInPaise}`);
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalPrice * 100,
-      currency: "usd",
+      amount: amountInPaise,
+      currency: "inr",
       metadata: { orderId: String(orderId) },
     });
 

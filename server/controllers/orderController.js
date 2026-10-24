@@ -3,6 +3,18 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
 import database from "../database/db.js";
 import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
 
+// ---------------------------------------------------------------
+// MONEY RULES (INR)
+// All maths is done in PAISE (whole numbers, 1 rupee = 100 paise).
+// This avoids tiny decimal errors like 0.1 + 0.2 = 0.30000000000000004
+// ---------------------------------------------------------------
+const FREE_SHIPPING_ABOVE_PAISE = 500 * 100; // subtotal Rs 500 or more -> free shipping
+const SHIPPING_FEE_PAISE = 50 * 100; // otherwise Rs 50
+const GST_PERCENT = 18; // 18% GST added on top of the subtotal
+
+const toPaise = (rupees) => Math.round(Number(rupees) * 100);
+const toRupeesText = (paise) => (paise / 100).toFixed(2); // for saving in the database
+
 export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
   const {
     full_name,
@@ -31,13 +43,28 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
 
   const paymentMethod = payment_method === "COD" ? "COD" : "Card";
 
-  const items = Array.isArray(orderedItems)
-    ? orderedItems
-    : JSON.parse(orderedItems);
+  let items;
+  try {
+    items = Array.isArray(orderedItems) ? orderedItems : JSON.parse(orderedItems);
+  } catch {
+    return next(new ErrorHandler("Invalid cart data.", 400));
+  }
 
-  if (!items || items.length === 0) {
+  if (!Array.isArray(items) || items.length === 0) {
     return next(new ErrorHandler("No items in cart.", 400));
   }
+
+  // Every item must have a product id and a whole-number quantity of 1 or more
+  for (const item of items) {
+    if (
+      !item?.product?.id ||
+      !Number.isInteger(item.quantity) ||
+      item.quantity < 1
+    ) {
+      return next(new ErrorHandler("Invalid cart item.", 400));
+    }
+  }
+
   const productIds = items.map((item) => item.product.id);
 
   const client = await database.connect();
@@ -50,7 +77,7 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
       [productIds]
     );
 
-    let total_price = 0;
+    let subtotalPaise = 0;
     const values = [];
     const placeholders = [];
 
@@ -84,8 +111,8 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
         );
       }
 
-      const itemTotal = product.price * item.quantity;
-      total_price += itemTotal;
+      // Price always comes from the database, never from the browser
+      subtotalPaise += toPaise(product.price) * item.quantity;
 
       values.push(
         null,
@@ -105,15 +132,20 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
       );
     }
 
-    const tax_price = 0.18;
-    const shipping_price = total_price >= 50 ? 0 : 2;
-    total_price = Math.round(
-      total_price + total_price * tax_price + shipping_price
-    );
+    const shippingPaise =
+      subtotalPaise >= FREE_SHIPPING_ABOVE_PAISE ? 0 : SHIPPING_FEE_PAISE;
+    const taxPaise = Math.round((subtotalPaise * GST_PERCENT) / 100);
+    const totalPaise = subtotalPaise + taxPaise + shippingPaise;
 
+    // tax_price now stores the tax AMOUNT in rupees (before, it stored the rate 0.18)
     const orderResult = await client.query(
       `INSERT INTO orders (buyer_id, total_price, tax_price, shipping_price) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [req.user.id, total_price, tax_price, shipping_price]
+      [
+        req.user.id,
+        toRupeesText(totalPaise),
+        toRupeesText(taxPaise),
+        toRupeesText(shippingPaise),
+      ]
     );
 
     const orderId = orderResult.rows[0].id;
@@ -138,6 +170,14 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
       [orderId, full_name, state, city, country, address, pincode, phone]
     );
 
+    // Amounts sent back to the browser, in rupees
+    const amounts = {
+      subtotal_price: subtotalPaise / 100,
+      tax_price: taxPaise / 100,
+      shipping_price: shippingPaise / 100,
+      total_price: totalPaise / 100,
+    };
+
     if (paymentMethod === "COD") {
       await client.query(
         `INSERT INTO payments (order_id, payment_type, payment_status) VALUES ($1, $2, $3) RETURNING *`,
@@ -155,13 +195,14 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
         message: "Order placed successfully. Pay with cash on delivery.",
         paymentMethod: "COD",
         paymentIntent: null,
-        total_price,
+        ...amounts,
       });
     }
 
+    // Stripe wants the amount in paise (whole number)
     const paymentResponse = await generatePaymentIntent(
       orderId,
-      total_price,
+      totalPaise,
       client
     );
 
@@ -176,7 +217,7 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
       message: "Order placed successfully. Please proceed to payment.",
       paymentMethod: "Card",
       paymentIntent: paymentResponse.clientSecret,
-      total_price,
+      ...amounts,
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -320,62 +361,135 @@ GROUP BY o.id, s.id, p.id
   });
 });
 
+const ALLOWED_TRANSITIONS = {
+  Processing: ["Shipped", "Cancelled"],
+  Shipped: ["Delivered", "Cancelled"],
+  Delivered: [],
+  Cancelled: [],
+};
+
 export const updateOrderStatus = catchAsyncErrors(async (req, res, next) => {
-  const { status } = req.body;
-  if (!status) {
-    return next(new ErrorHandler("Provide a valid status for order.", 400));
-  }
-  const { orderId } = req.params;
-  const results = await database.query(
-    `
-    SELECT * FROM orders WHERE id = $1
-    `,
-    [orderId]
-  );
-
-  if (results.rows.length === 0) {
-    return next(new ErrorHandler("Invalid order ID.", 404));
-  }
-
-  const updatedOrder = await database.query(
-    `
-    UPDATE orders SET order_status = $1 WHERE id = $2 RETURNING *
-    `,
-    [status, orderId]
-  );
-
-  if (status === "Delivered") {
-    await database.query(
-      `
-      UPDATE payments SET payment_status = 'Paid'
-      WHERE order_id = $1 AND payment_type = 'COD' AND payment_status = 'Pending'
-      `,
-      [orderId]
+  const status = req.body?.status;
+  if (!status || !Object.keys(ALLOWED_TRANSITIONS).includes(status)) {
+    return next(
+      new ErrorHandler(
+        "Status must be Processing, Shipped, Delivered or Cancelled.",
+        400
+      )
     );
   }
+  const { orderId } = req.params;
 
-  res.status(200).json({
-    success: true,
-    message: "Order status updated.",
-    updatedOrder: updatedOrder.rows[0],
-  });
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+
+    // FOR UPDATE locks this order row, so two admins cannot change it at the same time
+    const results = await client.query(
+      `SELECT * FROM orders WHERE id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    if (results.rows.length === 0) {
+      throw new ErrorHandler("Invalid order ID.", 404);
+    }
+
+    const currentStatus = results.rows[0].order_status;
+
+    if (currentStatus === status) {
+      await client.query("COMMIT");
+      return res.status(200).json({
+        success: true,
+        message: "Order status updated.",
+        updatedOrder: results.rows[0],
+      });
+    }
+
+    if (!ALLOWED_TRANSITIONS[currentStatus]?.includes(status)) {
+      throw new ErrorHandler(
+        `An order that is ${currentStatus} cannot be changed to ${status}.`,
+        400
+      );
+    }
+
+    const updatedOrder = await client.query(
+      `UPDATE orders SET order_status = $1 WHERE id = $2 RETURNING *`,
+      [status, orderId]
+    );
+
+    if (status === "Cancelled") {
+      // Put the reserved stock back
+      await client.query(
+        `UPDATE products p SET stock = p.stock + oi.quantity
+         FROM order_items oi
+         WHERE oi.order_id = $1 AND oi.product_id = p.id`,
+        [orderId]
+      );
+    }
+
+    if (status === "Delivered") {
+      await client.query(
+        `UPDATE payments SET payment_status = 'Paid'
+         WHERE order_id = $1 AND payment_type = 'COD' AND payment_status = 'Pending'`,
+        [orderId]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    res.status(200).json({
+      success: true,
+      message: "Order status updated.",
+      updatedOrder: updatedOrder.rows[0],
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
+  }
 });
 
 export const deleteOrder = catchAsyncErrors(async (req, res, next) => {
   const { orderId } = req.params;
-  const results = await database.query(
-    `
-        DELETE FROM orders WHERE id = $1 RETURNING *
-        `,
-    [orderId]
-  );
-  if (results.rows.length === 0) {
-    return next(new ErrorHandler("Invalid order ID.", 404));
-  }
 
-  res.status(200).json({
-    success: true,
-    message: "Order deleted.",
-    order: results.rows[0],
-  });
+  const client = await database.connect();
+  try {
+    await client.query("BEGIN");
+
+    const found = await client.query(
+      `SELECT * FROM orders WHERE id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    if (found.rows.length === 0) {
+      throw new ErrorHandler("Invalid order ID.", 404);
+    }
+
+    // Stock is only given back if the goods were not delivered or already returned by a cancel
+    if (["Processing", "Shipped"].includes(found.rows[0].order_status)) {
+      await client.query(
+        `UPDATE products p SET stock = p.stock + oi.quantity
+         FROM order_items oi
+         WHERE oi.order_id = $1 AND oi.product_id = p.id`,
+        [orderId]
+      );
+    }
+
+    const results = await client.query(
+      `DELETE FROM orders WHERE id = $1 RETURNING *`,
+      [orderId]
+    );
+
+    await client.query("COMMIT");
+
+    res.status(200).json({
+      success: true,
+      message: "Order deleted.",
+      order: results.rows[0],
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
+  }
 });

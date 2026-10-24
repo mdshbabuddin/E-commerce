@@ -1,11 +1,12 @@
 import { Truck, Shield, Headphones, CreditCard } from 'lucide-react';
+import { FREE_SHIPPING_ABOVE } from '../../lib/money';
 
 const FeatureSection = () => {
   const features = [
     {
       icon: Truck,
       title: 'Free Shipping',
-      description: 'Free shipping on orders over $50 worldwide'
+      description: `Free shipping on orders over ₹${FREE_SHIPPING_ABOVE} across India`
     },
     {
       icon: Shield,

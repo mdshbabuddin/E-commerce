@@ -1,6 +1,7 @@
 import React from "react";
 import { useDispatch } from "react-redux";
 import { toggleViewProductModal } from "../store/slices/extraSlice";
+import { formatINR } from "../lib/helper";
 
 const ViewProductModal = ({ selectedProduct }) => {
   const dispatch = useDispatch();
@@ -40,8 +41,7 @@ const ViewProductModal = ({ selectedProduct }) => {
                 <strong>Category:</strong> {selectedProduct.category}
               </p>
               <p>
-                <strong>Price:</strong> Rs{" "}
-                {selectedProduct.price.toLocaleString()}
+                <strong>Price:</strong> {formatINR(selectedProduct.price)}
               </p>
               <p>
                 <strong>Ratings:</strong> ⭐ {selectedProduct.ratings}
